@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SBOM to Excel</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2.5 3.5 7v10L12 21.5 20.5 17V7z"/><path d="M3.5 7 12 11.5 20.5 7"/><path d="M12 11.5v10"/>
+        </svg>
+      </div>
+      <div>
+        <h1>SBOM to Excel</h1>
+        <p class="subtitle">Merge container SBOMs into one workbook to locate packages across your Anthos images.</p>
+      </div>
+    </div>
+    <span class="local-badge" title="Files are parsed in this browser tab. Nothing is uploaded.">
+      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      Runs locally, nothing is uploaded
+    </span>
+  </header>
+
+  <main>
+    <!-- 1. Import -->
+    <section class="panel" aria-labelledby="h-import">
+      <div class="panel-head">
+        <span class="step">1</span>
+        <h2 id="h-import">Add SBOM files</h2>
+        <span class="hint">CycloneDX · SPDX 2.x / 3.0 · Syft · Trivy (JSON)</span>
+      </div>
+
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="Add SBOM files">
+        <svg class="dz-icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <p class="dz-title">Drop JSON files or whole folders anywhere on this page</p>
+        <div class="dz-actions">
+          <label class="btn btn-primary">Choose files
+            <input type="file" id="fileInput" multiple accept=".json,.jsonl,.ndjson,application/json" hidden>
+          </label>
+          <label class="btn">Choose folder
+            <input type="file" id="folderInput" webkitdirectory multiple hidden>
+          </label>
+        </div>
+        <p id="dropNote" class="dz-note" aria-live="polite"></p>
+      </div>
+
+      <details class="howto">
+        <summary>How do I get SBOMs for the images in my cluster?</summary>
+        <div class="howto-body">
+          <p><b>List the images running in the cluster</b></p>
+          <pre><code>kubectl get pods -A -o jsonpath='{range .items[*].spec.containers[*]}{.image}{"\n"}{end}' | sort -u &gt; images.txt</code></pre>
+          <p><b>Generate one SBOM per image</b> with Syft or Trivy</p>
+          <pre><code>while read -r img; do
+  syft "$img" -o cyclonedx-json &gt; "sbom-$(echo "$img" | tr '/:@' '___').json"
+done &lt; images.txt
+
+# or
+trivy image --format cyclonedx --output sbom.json IMAGE</code></pre>
+          <p><b>Images in Artifact Registry</b> can export SPDX SBOMs from Artifact Analysis:</p>
+          <pre><code>gcloud artifacts sbom export --uri=REGION-docker.pkg.dev/PROJECT/REPO/IMAGE@sha256:DIGEST</code></pre>
+          <p class="muted">Then drop all the resulting <code>.json</code> files (or the folder) above.</p>
+        </div>
+      </details>
+
+      <div id="filesBlock" hidden>
+        <div class="list-head">
+          <h3>Files <span id="fileCount" class="count"></span></h3>
+          <button id="clearBtn" class="btn btn-link" type="button">Clear all</button>
+        </div>
+        <div class="table-wrap files-wrap">
+          <table class="files">
+            <thead><tr><th>File</th><th>Format</th><th>Image / target</th><th class="num">Packages</th><th class="act"><span class="sr-only">Remove</span></th></tr></thead>
+            <tbody id="fileList"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stats -->
+    <section id="stats" class="stats" hidden aria-label="Summary">
+      <div class="stat"><div class="val" id="statImages">0</div><div class="lbl">Images / SBOMs</div></div>
+      <div class="stat"><div class="val" id="statRows">0</div><div class="lbl">Package rows</div></div>
+      <div class="stat"><div class="val" id="statUnique">0</div><div class="lbl">Unique packages</div></div>
+      <div class="stat"><div class="val" id="statTypes">0</div><div class="lbl">Ecosystems</div></div>
+    </section>
+
+    <!-- 2. Preview / search -->
+    <section id="previewPanel" class="panel" hidden aria-labelledby="h-preview">
+      <div class="panel-head">
+        <span class="step">2</span>
+        <h2 id="h-preview">Find packages</h2>
+      </div>
+      <div class="toolbar">
+        <div class="search">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="search" id="search" placeholder="Search name, version, image, purl, license, path…  e.g. log4j 2.14" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="seg" role="tablist" aria-label="View">
+          <button type="button" role="tab" data-view="packages" aria-selected="true">All packages</button>
+          <button type="button" role="tab" data-view="index" aria-selected="false">Package index</button>
+          <button type="button" role="tab" data-view="images" aria-selected="false">Images</button>
+        </div>
+      </div>
+      <div class="subbar">
+        <p id="resultInfo" class="muted" aria-live="polite"></p>
+        <label class="check"><input type="checkbox" id="optFiles"> Include file-type components</label>
+      </div>
+      <div class="table-wrap data-wrap">
+        <table class="data" id="dataTable"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <!-- 3. Export -->
+    <section id="exportPanel" class="panel" hidden aria-labelledby="h-export">
+      <div class="panel-head">
+        <span class="step">3</span>
+        <h2 id="h-export">Export to Excel</h2>
+      </div>
+      <div class="export-row">
+        <label class="field">
+          <span>File name</span>
+          <span class="input-suffix"><input id="outName" type="text" spellcheck="false"><em>.xlsx</em></span>
+        </label>
+        <label class="check" id="filteredWrap"><input type="checkbox" id="optFiltered"> Only export rows matching the current search</label>
+        <button id="exportBtn" class="btn btn-primary btn-lg" type="button">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+          Download Excel
+        </button>
+      </div>
+      <p id="exportStatus" class="export-status" aria-live="polite"></p>
+      <ul class="sheet-list">
+        <li><b>Packages</b>: one row per package per image, with version, type, location, license, PURL, CPE, layer and digest.</li>
+        <li><b>Package Index</b>: one row per unique package and version, listing every image that contains it.</li>
+        <li><b>Images</b>: one row per SBOM, with digest, OS, package count and any parse errors.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="foot">Static HTML, CSS and JS. Works offline and from <code>file://</code>.</footer>
+
+  <script src="js/xlsx-writer.js"></script>
+  <script src="js/sbom-parsers.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
