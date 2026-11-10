@@ -74,3 +74,7 @@ js/sbom-parsers.js    format detection and normalisation
 js/xlsx-writer.js     minimal XLSX (Office Open XML) + ZIP writer
 js/app.js             UI logic: file intake, search, preview, export
 ```
+
+## License
+
+[MIT](LICENSE)
